@@ -1,0 +1,13 @@
+[project]
+name = "llama-gradio-ui"
+version = "0.1.0"
+description = "Local LLM Chat UI - connects to any OpenAI-compatible server (llama.cpp, etc.)"
+requires-python = ">=3.10"
+dependencies = [
+    "gradio>=6.0.0,<7",
+    "httpx",
+    "mcp",
+    "presidio-analyzer",
+    "presidio-anonymizer",
+    "spacy",
+]
