@@ -109,6 +109,15 @@ The MCP tab also accepts Claude/Cursor-format imports.
 4. The model runs again, up to 5 rounds
 5. Final output streams back to the chat UI
 
+## Thinking Mode Notes
+
+- The Chat tab `Think` toggle is forwarded to llama.cpp on each request using:
+  - `reasoning: "on" | "off"`
+  - `reasoning_budget: -1 | 0`
+  - `chat_template_kwargs: {"enable_thinking": true | false}`
+- Some Qwen3.5 + llama.cpp builds have known upstream issues where thinking control can be inconsistent.
+- If `Think: OFF` still hangs or emits reasoning on your build, update llama.cpp and prefer server startup with explicit reasoning flags (for example `--reasoning off`).
+
 ## Project Structure
 
 | File | Purpose |

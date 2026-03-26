@@ -24,7 +24,7 @@ class PrivacyShield:
     def __init__(
         self,
         fetch_models: Callable[[], list[str] | None],
-        openai_stream: Callable[[list[dict], str], Iterable[str]],
+        openai_stream: Callable[[list[dict], str, bool], Iterable[str]],
     ) -> None:
         self._fetch_models = fetch_models
         self._openai_stream = openai_stream
@@ -77,7 +77,7 @@ class PrivacyShield:
                 {"role": "system", "content": SHIELD_SYSTEM_PROMPT},
                 {"role": "user", "content": scrubbed_text},
             ]
-            for token in self._openai_stream(messages, ""):
+            for token in self._openai_stream(messages, "", False):
                 full += token
                 yield full
         except Exception as exc:

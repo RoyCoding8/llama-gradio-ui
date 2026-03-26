@@ -33,23 +33,31 @@ class ChatEngine:
         self.max_tool_iters = max_tool_iters
         self.tools_enabled = tools_enabled
 
-    def openai_stream(self, messages: list[dict], model_id: str = ""):
+    def openai_stream(
+        self,
+        messages: list[dict],
+        model_id: str = "",
+        think_on: bool = False,
+    ):
         if not model_id:
             model_id = self.runtime.get_model_id() or "default"
 
         in_reasoning = False
         timeout = httpx.Timeout(connect=5.0, read=300.0, write=30.0, pool=5.0)
+        payload = {
+            "model": model_id,
+            "messages": messages,
+            "stream": True,
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "repeat_penalty": 1.1,
+        }
+        payload.update(self._reasoning_controls(think_on))
+
         with httpx.stream(
             "POST",
             f"{self.api}/v1/chat/completions",
-            json={
-                "model": model_id,
-                "messages": messages,
-                "stream": True,
-                "temperature": 0.7,
-                "top_p": 0.9,
-                "repeat_penalty": 1.1,
-            },
+            json=payload,
             timeout=timeout,
         ) as response:
             if response.status_code != 200:
@@ -101,7 +109,7 @@ class ChatEngine:
             return
 
         tools = self.mcp.get_tools() if self.tools_enabled else []
-        system_prompt = self._system_prompt(bool(tools))
+        system_prompt = self._system_prompt(bool(tools), think_on)
 
         messages = [{"role": "system", "content": system_prompt}]
         for item in history:
@@ -125,16 +133,19 @@ class ChatEngine:
         for _ in range(self.max_tool_iters):
             yield self.format_tool_log(tool_log, _GENERATING_DOTS)
             try:
+                payload = {
+                    "model": model_id,
+                    "messages": messages,
+                    "tools": tools,
+                    "tool_choice": "auto",
+                    "temperature": 0.7,
+                    "top_p": 0.9,
+                }
+                payload.update(self._reasoning_controls(think_on))
+
                 response = httpx.post(
                     f"{self.api}/v1/chat/completions",
-                    json={
-                        "model": model_id,
-                        "messages": messages,
-                        "tools": tools,
-                        "tool_choice": "auto",
-                        "temperature": 0.7,
-                        "top_p": 0.9,
-                    },
+                    json=payload,
                     timeout=120,
                 )
                 response.raise_for_status()
@@ -153,7 +164,11 @@ class ChatEngine:
                 clean_messages = self._prepare_final_stream_messages(messages)
                 streamed_any = False
                 try:
-                    for token in self.openai_stream(clean_messages, model_id):
+                    for token in self.openai_stream(
+                        clean_messages,
+                        model_id,
+                        think_on=think_on,
+                    ):
                         streamed_any = True
                         full += token
                         yield self.strip_think(full, think_on)
@@ -199,7 +214,9 @@ class ChatEngine:
         prefix = self.format_tool_log(tool_log, "")
         full = prefix + TOOL_LOG_SEP if prefix else ""
         try:
-            for token in self.openai_stream(clean_messages, model_id):
+            for token in self.openai_stream(
+                clean_messages, model_id, think_on=think_on
+            ):
                 full += token
                 yield self.strip_think(full, think_on)
         except httpx.RemoteProtocolError:
@@ -210,18 +227,30 @@ class ChatEngine:
         yield self.strip_think(full, think_on)
 
     @staticmethod
-    def _system_prompt(has_tools: bool) -> str:
+    def _system_prompt(has_tools: bool, think_on: bool) -> str:
+        think_rule = (
+            "" if think_on else " Do not output <think> tags or reasoning traces."
+        )
         if has_tools:
             return (
                 "You are a helpful assistant with access to tools. "
                 "Call tools only when needed for verification or external data. "
                 "If you call a tool, produce strict JSON arguments matching the tool schema exactly. "
-                "Do not encode arrays or objects as strings. Be concise."
+                "Do not encode arrays or objects as strings. Be concise." + think_rule
             )
         return (
             "You are a helpful assistant. "
             "Keep reasoning concise and answer clearly with minimal verbosity."
+            + think_rule
         )
+
+    @staticmethod
+    def _reasoning_controls(think_on: bool) -> dict[str, Any]:
+        return {
+            "reasoning": "on" if think_on else "off",
+            "reasoning_budget": -1 if think_on else 0,
+            "chat_template_kwargs": {"enable_thinking": think_on},
+        }
 
     @staticmethod
     def normalize_content(content: Any) -> str:
@@ -426,7 +455,7 @@ class ChatEngine:
     ):
         full = ""
         try:
-            for token in self.openai_stream(messages, model_id):
+            for token in self.openai_stream(messages, model_id, think_on=think_on):
                 full += token
                 yield self.strip_think(full, think_on)
         except httpx.RemoteProtocolError:
